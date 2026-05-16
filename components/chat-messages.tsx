@@ -11,6 +11,7 @@ import { extractCitationMapsFromMessages } from '@/lib/utils/citation'
 
 import { AnimatedLogo } from './ui/animated-logo'
 import { ChatError } from './chat-error'
+import { ChatFooterMessage } from './chat-footer-message'
 import { RenderMessage } from './render-message'
 
 // Import section structure interface
@@ -22,9 +23,9 @@ interface ChatSection {
 
 interface ChatMessagesProps {
   sections: ChatSection[] // Changed from messages to sections
-  onQuerySelect: (query: string) => void
   status: UseChatHelpers<UIMessage<unknown, UIDataTypes, UITools>>['status']
   chatId?: string
+  isGuest?: boolean
   addToolResult?: (params: { toolCallId: string; result: any }) => void
   /** Ref for the scroll container */
   scrollContainerRef: React.RefObject<HTMLDivElement>
@@ -35,9 +36,9 @@ interface ChatMessagesProps {
 
 export function ChatMessages({
   sections,
-  onQuerySelect,
   status,
   chatId,
+  isGuest = false,
   addToolResult,
   scrollContainerRef,
   onUpdateMessage,
@@ -54,12 +55,7 @@ export function ChatMessages({
   const isMobile = useMediaQuery('(max-width: 767px)')
 
   // Tool types definition - moved outside function for performance
-  const toolTypes = [
-    'tool-search',
-    'tool-fetch',
-    'tool-askQuestion',
-    'tool-relatedQuestions'
-  ]
+  const toolTypes = ['tool-search', 'tool-fetch', 'tool-askQuestion']
 
   // Clear cache during streaming to ensure accurate tool counts
   useEffect(() => {
@@ -72,7 +68,7 @@ export function ChatMessages({
   // Calculate the offset height based on device type
   // Note: pt-14 (56px) on scroll-container must be included in desktop offset
   const offsetHeight = isMobile
-    ? 208 // Mobile: larger offset for mobile header/input
+    ? 208 // Mobile: larger offset for mobile header/input (pt-14 = 56px)
     : 196 // Desktop: smaller offset (140px) + pt-14 (56px)
 
   // Extract citation maps from all messages in all sections
@@ -87,8 +83,11 @@ export function ChatMessages({
 
   if (!sections.length) return null
 
-  // Check if loading indicator should be shown
-  const showLoading = status === 'submitted' || status === 'streaming'
+  // Keep the assistant logo visible for the latest section after generation
+  const latestSection = sections.at(-1)
+  const showAssistantLogo = Boolean(
+    latestSection && (isLoading || latestSection.assistantMessages.length > 0)
+  )
 
   // Helper function to get tool count with caching
   const getToolCount = (message?: UIMessage): number => {
@@ -173,7 +172,7 @@ export function ChatMessages({
           <div
             key={section.id}
             id={`section-${section.id}`}
-            className="chat-section pb-14"
+            className="chat-section scroll-mt-14 pb-4 md:pb-14"
             style={
               sectionIndex === sections.length - 1
                 ? { minHeight: `calc(100dvh - ${offsetHeight}px)` }
@@ -181,7 +180,7 @@ export function ChatMessages({
             }
           >
             {/* User message */}
-            <div className="flex flex-col gap-4 mb-4">
+            <div className="flex flex-col gap-2 md:gap-4 mb-2 md:mb-4">
               <RenderMessage
                 message={section.userMessage}
                 messageId={section.userMessage.id}
@@ -189,8 +188,8 @@ export function ChatMessages({
                   getIsOpen(id, partType, hasNextPart, section.userMessage)
                 }
                 onOpenChange={handleOpenChange}
-                onQuerySelect={onQuerySelect}
                 chatId={chatId}
+                isGuest={isGuest}
                 status={status}
                 addToolResult={addToolResult}
                 onUpdateMessage={onUpdateMessage}
@@ -207,7 +206,10 @@ export function ChatMessages({
                 messageIndex === section.assistantMessages.length - 1
 
               return (
-                <div key={assistantMessage.id} className="flex flex-col gap-4">
+                <div
+                  key={assistantMessage.id}
+                  className="flex flex-col gap-2 md:gap-4"
+                >
                   <RenderMessage
                     message={assistantMessage}
                     messageId={assistantMessage.id}
@@ -215,8 +217,8 @@ export function ChatMessages({
                       getIsOpen(id, partType, hasNextPart, assistantMessage)
                     }
                     onOpenChange={handleOpenChange}
-                    onQuerySelect={onQuerySelect}
                     chatId={chatId}
+                    isGuest={isGuest}
                     status={status}
                     addToolResult={addToolResult}
                     onUpdateMessage={onUpdateMessage}
@@ -227,10 +229,14 @@ export function ChatMessages({
                 </div>
               )
             })}
-            {/* Show loading after assistant messages */}
-            {showLoading && sectionIndex === sections.length - 1 && (
-              <div className="flex justify-start py-4">
-                <AnimatedLogo className="h-10 w-10" />
+            {/* Show assistant logo and footer message after assistant messages */}
+            {showAssistantLogo && sectionIndex === sections.length - 1 && (
+              <div className="flex items-center gap-3 py-1 md:py-4">
+                <AnimatedLogo
+                  className="size-10 shrink-0"
+                  animate={isLoading}
+                />
+                <ChatFooterMessage isLoading={isLoading} />
               </div>
             )}
             {sectionIndex === sections.length - 1 && (

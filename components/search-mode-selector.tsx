@@ -1,13 +1,17 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { Check, ChevronDown } from 'lucide-react'
 
 import { SEARCH_MODE_CONFIGS } from '@/lib/config/search-modes'
 import { SearchMode } from '@/lib/types/search'
 import { cn } from '@/lib/utils'
-import { getCookie, setCookie } from '@/lib/utils/cookies'
+import {
+  getCookie,
+  setCookie,
+  subscribeToCookieChange
+} from '@/lib/utils/cookies'
 
 import { Button } from './ui/button'
 import {
@@ -19,42 +23,27 @@ import {
 import { HoverCard, HoverCardContent, HoverCardTrigger } from './ui/hover-card'
 
 export function SearchModeSelector() {
-  const [value, setValue] = useState<SearchMode>('quick')
-  const [indicatorStyle, setIndicatorStyle] = useState<React.CSSProperties>({})
+  const value = useSyncExternalStore(
+    subscribeToCookieChange,
+    () => {
+      const savedMode = getCookie('searchMode')
+      return savedMode === 'adaptive' ? 'adaptive' : 'quick'
+    },
+    () => 'quick'
+  )
   const [openHoverCard, setOpenHoverCard] = useState<string | null>(null)
   const [justSelected, setJustSelected] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  const buttonsRef = useRef<(HTMLButtonElement | null)[]>([])
 
   useEffect(() => {
     const savedMode = getCookie('searchMode')
-    if (savedMode && ['quick', 'adaptive'].includes(savedMode)) {
-      setValue(savedMode as SearchMode)
-    } else if (savedMode) {
+    if (savedMode && !['quick', 'adaptive'].includes(savedMode)) {
       // Clean up invalid cookie value (e.g., old 'planning' mode)
       setCookie('searchMode', 'quick')
-      setValue('quick')
     }
   }, [])
 
-  useEffect(() => {
-    // Update indicator position when value changes
-    const selectedIndex = SEARCH_MODE_CONFIGS.findIndex(
-      config => config.value === value
-    )
-    const selectedButton = buttonsRef.current[selectedIndex]
-
-    if (selectedButton) {
-      const { offsetLeft, offsetWidth } = selectedButton
-      setIndicatorStyle({
-        transform: `translateX(${offsetLeft}px)`,
-        width: `${offsetWidth}px`
-      })
-    }
-  }, [value])
-
   const handleModeSelect = (mode: SearchMode) => {
-    setValue(mode)
     setCookie('searchMode', mode)
     setOpenHoverCard(null) // Close hover card on selection
     setDropdownOpen(false) // Close dropdown on selection
@@ -70,6 +59,11 @@ export function SearchModeSelector() {
     config => config.value === value
   )
   const SelectedIcon = selectedMode?.icon
+  const selectedIndex = Math.max(
+    SEARCH_MODE_CONFIGS.findIndex(config => config.value === value),
+    0
+  )
+  const modeCount = SEARCH_MODE_CONFIGS.length
 
   return (
     <>
@@ -79,12 +73,13 @@ export function SearchModeSelector() {
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className="text-sm rounded-full shadow-none gap-1 transition-all"
+              size="sm"
+              className="text-xs rounded-full shadow-none gap-1 transition-all"
             >
               {SelectedIcon && (
                 <SelectedIcon
                   className={cn(
-                    'h-4 w-4 transition-colors',
+                    'size-3.5 transition-colors',
                     selectedMode?.color
                   )}
                 />
@@ -92,7 +87,7 @@ export function SearchModeSelector() {
               <span className="text-xs font-medium">{selectedMode?.label}</span>
               <ChevronDown
                 className={cn(
-                  'h-3 w-3 ml-1 opacity-50 transition-transform duration-200',
+                  'size-3 ml-0.5 opacity-50 transition-transform duration-200',
                   dropdownOpen && 'rotate-180'
                 )}
               />
@@ -109,11 +104,11 @@ export function SearchModeSelector() {
                   className="relative flex flex-col items-start gap-1 py-2 pl-8 pr-2 cursor-pointer focus:outline-none"
                 >
                   {isSelected && (
-                    <Check className="absolute left-2 top-2.5 h-4 w-4" />
+                    <Check className="absolute left-2 top-2.5 size-4" />
                   )}
                   <div className="flex items-center gap-2">
                     <ModeIcon
-                      className={cn('h-4 w-4 transition-colors', config.color)}
+                      className={cn('size-4 transition-colors', config.color)}
                     />
                     <span className="text-sm font-medium">{config.label}</span>
                   </div>
@@ -134,8 +129,11 @@ export function SearchModeSelector() {
         <div className="relative inline-flex items-center rounded-full bg-background border p-1">
           {/* Animated background indicator */}
           <div
-            className="absolute inset-y-1 rounded-full bg-muted transition-all duration-200 ease-out"
-            style={indicatorStyle}
+            className="absolute inset-1 rounded-full bg-muted transition-all duration-200 ease-out"
+            style={{
+              width: `calc(${100 / modeCount}% - 4px)`,
+              transform: `translateX(${selectedIndex * 100}%)`
+            }}
           />
 
           {/* Mode buttons */}
@@ -159,12 +157,9 @@ export function SearchModeSelector() {
                   <HoverCardTrigger asChild>
                     <button
                       type="button"
-                      ref={el => {
-                        buttonsRef.current[index] = el
-                      }}
                       onClick={() => handleModeSelect(config.value)}
                       className={cn(
-                        'relative z-10 flex items-center justify-center rounded-full px-3 py-2 transition-colors duration-200',
+                        'relative z-10 flex-1 items-center justify-center rounded-full px-3 py-2 transition-colors duration-200',
                         isSelected
                           ? 'text-foreground'
                           : 'text-muted-foreground hover:text-foreground/80'
@@ -188,7 +183,7 @@ export function SearchModeSelector() {
                   >
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Icon className={cn('h-5 w-5', config.color)} />
+                        <Icon className={cn('size-5', config.color)} />
                         <h4 className="text-sm font-semibold">
                           {config.label}
                         </h4>

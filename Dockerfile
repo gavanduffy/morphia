@@ -1,7 +1,10 @@
-# Base image
-FROM oven/bun:1.2.12 AS builder
+# Build stage - Use Node for Next.js 16 compatibility (Bun lacks worker_threads support on arm64)
+FROM node:22-slim AS builder
 
 WORKDIR /app
+
+# Install bun for dependency management
+RUN npm install -g bun
 
 # Install dependencies (separated for better cache utilization)
 COPY package.json bun.lock ./
@@ -9,12 +12,16 @@ RUN bun install
 
 # Copy source code and build
 COPY . .
-RUN bun next telemetry disable
-RUN bun run build
+RUN npx next telemetry disable
+ENV DATABASE_URL=postgresql://user:pass@localhost:5432/db
+RUN npm run build
 
 # Runtime stage
-FROM oven/bun:1.2.12 AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
+
+# Install bun for dependency management (used for migrations)
+RUN npm install -g bun
 
 # Copy only necessary files from builder
 COPY --from=builder /app/.next ./.next
@@ -38,4 +45,4 @@ exec "$@"\n' > /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 
 # Start production server with migration
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["bun", "start", "-H", "0.0.0.0"]
+CMD ["npx", "next", "start", "-H", "0.0.0.0"]

@@ -3,6 +3,8 @@ import { Inter as FontSans } from 'next/font/google'
 
 import { Analytics } from '@vercel/analytics/next'
 
+import { getCurrentUserId } from '@/lib/auth/get-current-user'
+import { UserProvider } from '@/lib/contexts/user-context'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +14,7 @@ import { Toaster } from '@/components/ui/sonner'
 import AppSidebar from '@/components/app-sidebar'
 import ArtifactRoot from '@/components/artifact/artifact-root'
 import Header from '@/components/header'
+import { KeyboardShortcutHandler } from '@/components/keyboard-shortcut-handler'
 import { ThemeProvider } from '@/components/theme-provider'
 
 import './globals.css'
@@ -65,11 +68,13 @@ export default async function RootLayout({
     user = supabaseUser
   }
 
+  const userId = user?.id ?? (await getCurrentUserId())
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={cn(
-          'min-h-screen flex flex-col font-sans antialiased overflow-hidden',
+          'fixed inset-0 flex flex-col font-sans antialiased overflow-hidden',
           fontSans.variable
         )}
       >
@@ -79,15 +84,18 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SidebarProvider defaultOpen>
-            <AppSidebar />
-            <div className="flex flex-col flex-1 min-w-0">
-              <Header user={user} />
-              <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-                <ArtifactRoot>{children}</ArtifactRoot>
-              </main>
-            </div>
-          </SidebarProvider>
+          <UserProvider hasUser={!!userId}>
+            <SidebarProvider defaultOpen={false}>
+              {userId && <AppSidebar />}
+              <KeyboardShortcutHandler />
+              <div className="flex flex-col flex-1 min-w-0">
+                <Header user={user} />
+                <main className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+                  <ArtifactRoot>{children}</ArtifactRoot>
+                </main>
+              </div>
+            </SidebarProvider>
+          </UserProvider>
           <Toaster />
           <Analytics />
         </ThemeProvider>

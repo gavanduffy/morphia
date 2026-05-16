@@ -8,16 +8,19 @@ import { UseChatHelpers } from '@ai-sdk/react'
 import { ArrowUp, ChevronDown, MessageCirclePlus, Square } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
 import { UploadedFile } from '@/lib/types'
 import type { UIDataTypes, UIMessage, UITools } from '@/lib/types/ai'
+import type { ModelSelectorData } from '@/lib/types/model-selector'
 import { cn } from '@/lib/utils'
 
 import { useArtifact } from './artifact/artifact-context'
 import { Button } from './ui/button'
-import { IconLogo } from './ui/icons'
+import { IconBlinkingLogo } from './ui/icons'
 import { ActionButtons } from './action-buttons'
 import { FileUploadButton } from './file-upload-button'
-import { ModelTypeSelector } from './model-type-selector'
+import { MessageNavigationDots } from './message-navigation-dots'
+import { ModelSelectorClient } from './model-selector-client'
 import { SearchModeSelector } from './search-mode-selector'
 import { UploadedFileList } from './uploaded-file-list'
 
@@ -43,6 +46,13 @@ interface ChatPanelProps {
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>
   /** Callback to reset chatId when starting a new chat */
   onNewChat?: () => void
+  /** Whether the current session is guest */
+  isGuest?: boolean
+  /** Whether the deployment is cloud mode */
+  isCloudDeployment?: boolean
+  modelSelectorData?: ModelSelectorData
+  /** Chat sections for message navigation dots */
+  sections?: { id: string; userMessage: UIMessage }[]
 }
 
 export function ChatPanel({
@@ -60,7 +70,11 @@ export function ChatPanel({
   uploadedFiles,
   setUploadedFiles,
   scrollContainerRef,
-  onNewChat
+  onNewChat,
+  isGuest = false,
+  isCloudDeployment = false,
+  modelSelectorData,
+  sections = []
 }: ChatPanelProps) {
   const router = useRouter()
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -70,6 +84,8 @@ export function ChatPanel({
   const [isInputFocused, setIsInputFocused] = useState(false) // Track input focus
   const { close: closeArtifact } = useArtifact()
   const isLoading = status === 'submitted' || status === 'streaming'
+  const hasAvailableModels =
+    isCloudDeployment || modelSelectorData?.hasAvailableModels !== false
 
   const handleCompositionStart = () => setIsComposing(true)
 
@@ -81,7 +97,7 @@ export function ChatPanel({
     }, 300)
   }
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     setMessages([])
     closeArtifact()
     // Reset focus state when clearing chat
@@ -90,7 +106,28 @@ export function ChatPanel({
     // Reset chatId in parent component
     onNewChat?.()
     router.push('/')
-  }
+  }, [setMessages, closeArtifact, onNewChat, router])
+
+  // Listen for keyboard shortcut events
+  // Uses defaultPrevented to prevent duplicate handling
+  // when multiple ChatPanel instances are mounted (Next.js component caching)
+  const handleNewChatRef = useRef(handleNewChat)
+  useEffect(() => {
+    handleNewChatRef.current = handleNewChat
+  }, [handleNewChat])
+
+  useEffect(() => {
+    const handleNewChatShortcut = (e: Event) => {
+      if (e.defaultPrevented) return
+      e.preventDefault()
+      handleNewChatRef.current()
+    }
+
+    window.addEventListener(SHORTCUT_EVENTS.newChat, handleNewChatShortcut)
+    return () => {
+      window.removeEventListener(SHORTCUT_EVENTS.newChat, handleNewChatShortcut)
+    }
+  }, [])
 
   const isToolInvocationInProgress = () => {
     if (!messages.length) return false
@@ -143,12 +180,15 @@ export function ChatPanel({
     <div
       className={cn(
         'w-full bg-background group/form-container shrink-0',
-        messages.length > 0 ? 'sticky bottom-0 px-2 pb-4' : 'px-6'
+        messages.length > 0 ? 'sticky bottom-0 px-2 pb-2 md:pb-4' : 'px-6'
       )}
     >
       {messages.length === 0 && (
-        <div className="mb-10 flex flex-col items-center gap-4">
-          <IconLogo className="size-12 text-muted-foreground" />
+        <div className="mb-6 md:mb-10 flex flex-col items-center gap-2 md:gap-4">
+          <IconBlinkingLogo className="size-12" />
+          <h1 className="text-xl md:text-2xl font-medium text-foreground">
+            What would you like to know?
+          </h1>
         </div>
       )}
       {uploadedFiles.length > 0 && (
@@ -156,6 +196,11 @@ export function ChatPanel({
       )}
       <form
         onSubmit={e => {
+          if (!hasAvailableModels) {
+            e.preventDefault()
+            toast.error('No enabled model is available')
+            return
+          }
           handleSubmit(e)
           // Reset focus state after submission
           setIsInputFocused(false)
@@ -163,18 +208,40 @@ export function ChatPanel({
         }}
         className={cn('max-w-full md:max-w-3xl w-full mx-auto relative')}
       >
-        {/* Scroll to bottom button - only shown when showScrollToBottomButton is true */}
-        {showScrollToBottomButton && messages.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="absolute -top-10 right-4 z-20 size-8 rounded-full shadow-md"
-            onClick={handleScrollToBottom}
-            title="Scroll to bottom"
+        {/* Scroll to bottom button */}
+        {messages.length > 0 && (
+          <div
+            className={cn(
+              'transition-opacity duration-100',
+              showScrollToBottomButton
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0'
+            )}
           >
-            <ChevronDown size={16} />
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="absolute -top-10 right-0 z-20 size-8 rounded-full shadow-md"
+              onClick={handleScrollToBottom}
+              title="Scroll to bottom"
+            >
+              <ChevronDown size={16} />
+            </Button>
+          </div>
+        )}
+        {/* Message navigation dots */}
+        {sections.length > 0 && (
+          <div
+            className={cn(
+              'transition-opacity duration-100',
+              !showScrollToBottomButton && status === 'ready'
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0'
+            )}
+          >
+            <MessageNavigationDots sections={sections} />
+          </div>
         )}
 
         <div
@@ -194,11 +261,11 @@ export function ChatPanel({
             onCompositionEnd={handleCompositionEnd}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            placeholder="Ask anything..."
+            placeholder={messages.length > 0 ? 'Reply...' : 'Ask anything...'}
             spellCheck={false}
             value={input}
             disabled={isLoading || isToolInvocationInProgress()}
-            className="resize-none w-full min-h-12 bg-transparent border-0 p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+            className="resize-none w-full min-h-12 bg-transparent border-0 p-3 md:p-4 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
             onChange={handleInputChange}
             onKeyDown={e => {
               if (
@@ -222,80 +289,98 @@ export function ChatPanel({
           />
 
           {/* Bottom menu area */}
-          <div className="flex items-center justify-between p-3">
+          <div className="flex items-center justify-between p-2 md:p-3">
             <div className="flex items-center gap-2">
-              <FileUploadButton
-                onFileSelect={async files => {
-                  const newFiles: UploadedFile[] = files.map(file => ({
-                    file,
-                    status: 'uploading'
-                  }))
-                  setUploadedFiles(prev => [...prev, ...newFiles])
-                  await Promise.all(
-                    newFiles.map(async uf => {
-                      const formData = new FormData()
-                      formData.append('file', uf.file)
-                      formData.append('chatId', chatId)
-                      try {
-                        const res = await fetch('/api/upload', {
-                          method: 'POST',
-                          body: formData
-                        })
+              {!isGuest && (
+                <FileUploadButton
+                  onFileSelect={async files => {
+                    const newFiles: UploadedFile[] = files.map(file => ({
+                      file,
+                      status: 'uploading'
+                    }))
+                    setUploadedFiles(prev => [...prev, ...newFiles])
+                    await Promise.all(
+                      newFiles.map(async uf => {
+                        const formData = new FormData()
+                        formData.append('file', uf.file)
+                        formData.append('chatId', chatId)
+                        try {
+                          const res = await fetch('/api/upload', {
+                            method: 'POST',
+                            body: formData
+                          })
 
-                        if (!res.ok) {
-                          throw new Error('Upload failed')
+                          if (!res.ok) {
+                            throw new Error('Upload failed')
+                          }
+
+                          const { file: uploaded } = await res.json()
+                          setUploadedFiles(prev =>
+                            prev.map(f =>
+                              f.file === uf.file
+                                ? {
+                                    ...f,
+                                    status: 'uploaded',
+                                    url: uploaded.url,
+                                    name: uploaded.filename,
+                                    key: uploaded.key
+                                  }
+                                : f
+                            )
+                          )
+                        } catch (e) {
+                          toast.error(`Failed to upload ${uf.file.name}`)
+                          setUploadedFiles(prev =>
+                            prev.map(f =>
+                              f.file === uf.file ? { ...f, status: 'error' } : f
+                            )
+                          )
                         }
-
-                        const { file: uploaded } = await res.json()
-                        setUploadedFiles(prev =>
-                          prev.map(f =>
-                            f.file === uf.file
-                              ? {
-                                  ...f,
-                                  status: 'uploaded',
-                                  url: uploaded.url,
-                                  name: uploaded.filename,
-                                  key: uploaded.key
-                                }
-                              : f
-                          )
-                        )
-                      } catch (e) {
-                        toast.error(`Failed to upload ${uf.file.name}`)
-                        setUploadedFiles(prev =>
-                          prev.map(f =>
-                            f.file === uf.file ? { ...f, status: 'error' } : f
-                          )
-                        )
-                      }
-                    })
-                  )
-                }}
-              />
+                      })
+                    )
+                  }}
+                />
+              )}
               <SearchModeSelector />
             </div>
             <div className="flex items-center gap-2">
+              {!isCloudDeployment && modelSelectorData && (
+                <ModelSelectorClient data={modelSelectorData} />
+              )}
               {messages.length > 0 && (
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={handleNewChat}
-                  className="shrink-0 rounded-full group"
+                  className="shrink-0 size-8 md:size-10 rounded-full group"
                   type="button"
                   disabled={isLoading}
                 >
                   <MessageCirclePlus className="size-4 group-hover:rotate-12 transition-all" />
                 </Button>
               )}
-              <ModelTypeSelector />
               <Button
                 type={isLoading ? 'button' : 'submit'}
                 size={'icon'}
-                className={cn(isLoading && 'animate-pulse', 'rounded-full')}
-                disabled={input.length === 0 && !isLoading}
+                className={cn(
+                  isLoading && 'animate-pulse',
+                  'size-8 md:size-10 rounded-full'
+                )}
+                disabled={
+                  (input.length === 0 && !isLoading) || !hasAvailableModels
+                }
                 onClick={isLoading ? stop : undefined}
+                title={
+                  hasAvailableModels
+                    ? undefined
+                    : 'No enabled model is available'
+                }
               >
-                {isLoading ? <Square size={20} /> : <ArrowUp size={20} />}
+                {isLoading ? (
+                  <Square className="size-4 md:size-5" />
+                ) : (
+                  <ArrowUp className="size-4 md:size-5" />
+                )}
               </Button>
             </div>
           </div>

@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 import { AlertCircle, Clock, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -21,14 +23,21 @@ interface ErrorModalProps {
     details?: string
   }
   onRetry?: () => void
+  onAuthClose?: () => void
 }
 
 export function ErrorModal({
   open,
   onOpenChange,
   error,
-  onRetry
+  onRetry,
+  onAuthClose
 }: ErrorModalProps) {
+  const handleAuthClose = () => {
+    onOpenChange(false)
+    onAuthClose?.()
+  }
+
   const getErrorIcon = () => {
     switch (error.type) {
       case 'rate-limit':
@@ -46,7 +55,7 @@ export function ErrorModal({
       case 'rate-limit':
         return 'Rate Limit Exceeded'
       case 'auth':
-        return 'Authentication Required'
+        return 'Continue with Morphic'
       case 'forbidden':
         return 'Access Denied'
       default:
@@ -62,7 +71,10 @@ export function ErrorModal({
           'You have made too many requests. Please wait a moment before trying again.'
         )
       case 'auth':
-        return 'You need to sign in to continue using this feature.'
+        return (
+          error.message ||
+          'To use Morphic, sign in to your account or create a new one.'
+        )
       case 'forbidden':
         return 'You do not have permission to access this resource.'
       default:
@@ -74,13 +86,22 @@ export function ErrorModal({
 
   const getErrorDetails = () => {
     if (error.type === 'rate-limit') {
-      return 'The limit will reset at midnight UTC. You can continue using speed mode without restrictions.'
+      return error.details || 'The limit resets at midnight UTC.'
     }
     return error.details
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={open => {
+        if (!open && error.type === 'auth') {
+          handleAuthClose()
+        } else {
+          onOpenChange(open)
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted">
@@ -99,27 +120,40 @@ export function ErrorModal({
           )}
         </DialogHeader>
         <DialogFooter className="flex-col gap-2">
-          {onRetry && error.type !== 'rate-limit' && (
-            <Button
-              onClick={() => {
-                onRetry()
-                onOpenChange(false)
-              }}
-              className="w-full"
-            >
-              <RefreshCw className="mr-2 size-4" />
-              Try Again
-            </Button>
+          {error.type === 'auth' ? (
+            <>
+              <Button asChild className="w-full">
+                <Link href="/auth/sign-up">Sign Up</Link>
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/auth/login">Sign In</Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              {onRetry && error.type !== 'rate-limit' && (
+                <Button
+                  onClick={() => {
+                    onRetry()
+                    onOpenChange(false)
+                  }}
+                  className="w-full"
+                >
+                  <RefreshCw className="mr-2 size-4" />
+                  Try Again
+                </Button>
+              )}
+              <Button
+                variant={
+                  onRetry && error.type !== 'rate-limit' ? 'outline' : 'default'
+                }
+                onClick={() => onOpenChange(false)}
+                className="w-full"
+              >
+                {error.type === 'rate-limit' ? 'Understood' : 'Close'}
+              </Button>
+            </>
           )}
-          <Button
-            variant={
-              onRetry && error.type !== 'rate-limit' ? 'outline' : 'default'
-            }
-            onClick={() => onOpenChange(false)}
-            className="w-full"
-          >
-            {error.type === 'rate-limit' ? 'Understood' : 'Close'}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

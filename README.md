@@ -11,299 +11,110 @@ An AI-powered search engine with a generative UI.
 </a>
 
 <br />
+<br />
 
 <a href="https://trendshift.io/repositories/9207" target="_blank"><img src="https://trendshift.io/api/badge/repositories/9207" alt="miurla%2Fmorphic | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-<img src="./public/screenshot-2025-05-04.png" />
+<img src="./public/screenshot-2026-02-07.png" />
 
 </div>
 
-## 🗂️ Overview
-
-- 🧪 [Beta Testing](#-beta-testing)
-- 🛠 [Features](#-features)
-- 🧱 [Stack](#-stack)
-- 🚀 [Quickstart](#-quickstart)
-- 🌐 [Deploy](#-deploy)
-- 🔎 [Search Engine](#-search-engine)
-- 💙 [Sponsors](#-sponsors)
-- 👥 [Contributing](#-contributing)
-- 📄 [License](#-license)
-
-📝 Explore AI-generated documentation on [DeepWiki](https://deepwiki.com/miurla/morphic)
-
-## 🧪 Beta Testing
-
-We're excited to announce the v1.0.0 pre-release is now available for beta testing at [beta.morphic.sh](https://beta.morphic.sh)!
-
-### About v1.0.0 Branch
-
-The `v1.0.0` branch is our pre-release branch featuring:
-
-- Latest features and improvements
-- Active bug fixes based on beta feedback
-- Preparation for stable release
-
-This branch will be merged into `main` once:
-
-- Beta testing phase is complete
-- Critical bugs are resolved
-- All planned features are stable
-
-### Which Branch Should I Use?
-
-- **For production use**: Use the `main` branch (stable)
-- **For testing and feedback**: Use the `v1.0.0` branch or visit [beta.morphic.sh](https://beta.morphic.sh)
-
-### Help Us Improve
-
-Found a bug or have suggestions? We'd love to hear from you:
-
-- 🐛 [Report issues on GitHub](https://github.com/miurla/morphic/issues)
-- 💬 Use the feedback button in the header at [beta.morphic.sh](https://beta.morphic.sh) for quick feedback
-- 🤝 Contribute to the beta testing effort
-
-Your feedback helps make Morphic better for everyone!
-
-## 🛠 Features
-
-### Core Features
+## Features
 
 - AI-powered search with GenerativeUI
-- Natural language question understanding
-- Multiple search providers support (Tavily, Brave, SearXNG, Exa)
-- Search modes: Quick, Planning, and Adaptive
-- Model type selection: Speed vs Quality
-- Inspector panel for tool execution and AI processing details
-
-### Authentication
-
-- User authentication powered by [Supabase Auth](https://supabase.com/docs/guides/auth)
-
-### Chat & History
-
-- Chat history automatically stored in PostgreSQL database
+- Search modes: Quick and Adaptive
+- Model selector with dynamic provider detection (OpenAI, Anthropic, Google, Ollama, Vercel AI Gateway)
+- Multiple search providers (Tavily, SearXNG, Brave, Exa)
+- Chat history stored in PostgreSQL
 - Share search results with unique URLs
-- Message feedback system
 - File upload support
-
-### AI Providers
-
-- OpenAI (Default)
-- Anthropic Claude
-- Google Gemini
-- Vercel AI Gateway
-- Ollama
-
-Models are configured in `config/models/*.json` with profile-based settings. When using non-OpenAI providers, update the model configuration files with compatible model IDs. See [Configuration Guide](docs/CONFIGURATION.md) for details.
-
-### Search Capabilities
-
-- URL-specific search
-- Content extraction with Tavily or Jina
-- Citation tracking and display
-- Self-hosted search with SearXNG support
-
-### Additional Features
-
+- User authentication with Supabase Auth
+- Guest mode for anonymous usage
 - Docker deployment ready
-- Browser search engine integration
-- LLM observability with Langfuse (optional)
-- Todo tracking for complex tasks
-- Changelog system for updates
 
-## 🧱 Stack
+## Installation
 
-### Core Framework
+### Docker (Recommended)
 
-- [Next.js](https://nextjs.org/) - React framework with App Router
-- [TypeScript](https://www.typescriptlang.org/) - Type-safe development
-- [Vercel AI SDK](https://sdk.vercel.ai/docs) - TypeScript toolkit for building AI-powered applications
-
-### Authentication & Authorization (Updated Category)
-
-- [Supabase](https://supabase.com/) - User authentication and backend services
-
-### AI & Search
-
-- [OpenAI](https://openai.com/) - Default AI provider (Optional: Google AI, Anthropic)
-- [Tavily AI](https://tavily.com/) - AI-optimized search with context
-- [Brave Search](https://brave.com/search/api/) - Traditional web search results
-- Tavily alternatives:
-  - [SearXNG](https://docs.searxng.org/) - Self-hosted search
-  - [Exa](https://exa.ai/) - Meaning-based search powered by embeddings
-  - [Firecrawl](https://firecrawl.dev/) - Web, news, and image search with crawling, scraping, LLM-ready extraction, and [open source](https://github.com/firecrawl/firecrawl).
-
-### Data Storage
-
-- [PostgreSQL](https://www.postgresql.org/) - Primary database (supports Neon, Supabase, or standard PostgreSQL)
-- [Drizzle ORM](https://orm.drizzle.team/) - Type-safe database ORM
-- [Cloudflare R2](https://developers.cloudflare.com/r2/) - File storage (optional)
-
-### UI & Styling
-
-- [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
-- [shadcn/ui](https://ui.shadcn.com/) - Re-usable components
-- [Radix UI](https://www.radix-ui.com/) - Unstyled, accessible components
-- [Lucide Icons](https://lucide.dev/) - Beautiful & consistent icons
-
-## 🚀 Quickstart
-
-### 1. Fork and Clone repo
-
-Fork the repo to your Github account, then run the following command to clone the repo:
-
-```bash
-git clone git@github.com:[YOUR_GITHUB_ACCOUNT]/morphic.git
-```
-
-### 2. Install dependencies
-
-```bash
-cd morphic
-bun install
-```
-
-### 3. Configure environment variables
-
-```bash
-cp .env.local.example .env.local
-```
-
-Fill in the required environment variables in `.env.local`:
-
-```bash
-DATABASE_URL=your_database_url
-OPENAI_API_KEY=your_openai_key
-TAVILY_API_KEY=your_tavily_key
-```
-
-**Note**: Authentication is disabled by default (`ENABLE_AUTH=false`).
-
-For optional features (alternative search providers, authentication, alternative AI providers, etc.), see [CONFIGURATION.md](./docs/CONFIGURATION.md)
-
-### 4. Run database migrations
-
-```bash
-bun run migrate
-```
-
-This command will create the necessary database tables.
-
-### 5. Run app locally
-
-#### Using Bun
-
-```bash
-bun dev
-```
-
-#### Using Docker
-
-1. Configure environment variables for Docker:
-
-```bash
-cp .env.local.example .env.local
-```
-
-Edit `.env.local` and set the required variables:
-
-```bash
-DATABASE_URL=postgresql://morphic:morphic@postgres:5432/morphic
-OPENAI_API_KEY=your_openai_key
-TAVILY_API_KEY=your_tavily_key
-BRAVE_SEARCH_API_KEY=your_brave_key
-```
-
-**Note**: Authentication is disabled by default (`ENABLE_AUTH=false` in `.env.local.example`).
-
-**Optional**: Customize PostgreSQL credentials by setting environment variables in `.env.local`:
-
-```bash
-POSTGRES_USER=morphic      # Default: morphic
-POSTGRES_PASSWORD=morphic  # Default: morphic
-POSTGRES_DB=morphic        # Default: morphic
-POSTGRES_PORT=5432         # Default: 5432
-```
-
-2. Start the Docker containers:
-
-```bash
-docker compose up -d
-```
-
-The application will:
-
-- Start PostgreSQL 17 with health checks
-- Start Redis for SearXNG search caching
-- Wait for the database to be ready
-- Run database migrations automatically
-- Start the Morphic application
-- Start SearXNG (optional search provider)
-
-3. Visit http://localhost:3000 in your browser.
-
-**Note**: Database data is persisted in a Docker volume. To reset the database, run:
-
-```bash
-docker compose down -v  # This will delete all data
-```
-
-## 🌐 Deploy
-
-Host your own live version of Morphic with Vercel or Docker.
-
-### Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmiurla%2Fmorphic&env=DATABASE_URL,OPENAI_API_KEY,TAVILY_API_KEY,BRAVE_SEARCH_API_KEY)
-
-**Note**: For Vercel deployments, set `ENABLE_AUTH=true` and configure Supabase authentication to secure your deployment.
-
-### Docker
-
-#### Using Prebuilt Image
-
-Prebuilt Docker images are automatically built and published to GitHub Container Registry:
+The quickest way to run Morphic locally:
 
 ```bash
 docker pull ghcr.io/miurla/morphic:latest
 ```
 
-You can use it with docker-compose by setting the image in your `docker-compose.yaml`:
+Then set up with Docker Compose:
 
-```yaml
-services:
-  morphic:
-    image: ghcr.io/miurla/morphic:latest
-    env_file: .env.local
-    environment:
-      DATABASE_URL: postgresql://morphic:morphic@postgres:5432/morphic
-      DATABASE_SSL_DISABLED: 'true'
-      ENABLE_AUTH: 'false'
-    ports:
-      - '3000:3000'
-    depends_on:
-      - postgres
-      - redis
+1. Clone the repository and configure environment:
+
+```bash
+git clone https://github.com/miurla/morphic.git
+cd morphic
+cp .env.local.example .env.local
 ```
 
-**Note**: The prebuilt image uses default model configurations (statically bundled at build time). To customize models, you need to build from source - see [CONFIGURATION.md](./docs/CONFIGURATION.md) for details.
+2. Edit `.env.local` and set at least one AI provider API key:
 
-#### Building from Source
+```bash
+OPENAI_API_KEY=your_openai_key
+```
 
-Or use Docker Compose for a complete setup with PostgreSQL, Redis, and SearXNG. See the [Using Docker](#using-docker) section for detailed instructions.
+See [supported providers](./docs/CONFIGURATION.md#supported-providers) for other options (Anthropic, Google, Ollama, Vercel AI Gateway).
 
-## 👥 Contributing
+3. Start all services:
 
-We welcome contributions to Morphic! Whether it's bug reports, feature requests, or pull requests, all contributions are appreciated.
+```bash
+docker compose up -d
+```
 
-Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+4. Visit http://localhost:3000 and select your model from the model selector.
 
-- How to submit issues
-- How to submit pull requests
-- Commit message conventions
-- Development setup
+Docker Compose starts PostgreSQL, Redis, SearXNG, and Morphic automatically. No additional search API key is needed — SearXNG is included.
 
-## 📄 License
+See the [Docker Guide](./docs/DOCKER.md) for more options including building from source and file upload configuration.
+
+### Local Development
+
+1. Clone and install:
+
+```bash
+git clone https://github.com/miurla/morphic.git
+cd morphic
+bun install
+```
+
+2. Configure environment:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Edit `.env.local` and set your API keys:
+
+```bash
+OPENAI_API_KEY=your_openai_key
+TAVILY_API_KEY=your_tavily_key
+```
+
+To enable chat history, authentication, file upload, and other features, see [CONFIGURATION.md](./docs/CONFIGURATION.md).
+
+3. Start the dev server:
+
+```bash
+bun dev
+```
+
+Visit http://localhost:3000.
+
+## Deploy
+
+### Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmiurla%2Fmorphic&env=OPENAI_API_KEY,TAVILY_API_KEY,ENABLE_AUTH)
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started, including local development setup.
+
+## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

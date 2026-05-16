@@ -1,19 +1,6 @@
-import {
-  type ModelMessage,
-  smoothStream,
-  stepCountIs,
-  streamText,
-  tool,
-  type UIMessageStreamWriter
-} from 'ai'
+import { stepCountIs, tool, ToolLoopAgent } from 'ai'
 
-import type {
-  ResearcherAgent,
-  ResearcherRespondOptions,
-  ResearcherResponse,
-  ResearcherTools
-} from '@/lib/types/agent'
-import { type ModelType } from '@/lib/types/model-type'
+import type { ResearcherTools } from '@/lib/types/agent'
 import { type Model } from '@/lib/types/models'
 
 import { fetchTool } from '../tools/fetch'
@@ -25,7 +12,7 @@ import { getModel } from '../utils/registry'
 import { isTracingEnabled } from '../utils/telemetry'
 
 import {
-  ADAPTIVE_MODE_PROMPT,
+  getAdaptiveModePrompt,
   QUICK_MODE_PROMPT
 } from './prompts/search-mode-prompts'
 
@@ -75,31 +62,26 @@ function wrapSearchToolForQuickMode<
   }) as T
 }
 
-// Enhanced researcher function with improved type safety
+// Enhanced researcher function with improved type safety using ToolLoopAgent
+// Note: abortSignal should be passed to agent.stream() or agent.generate() calls, not to the agent constructor
 export function createResearcher({
   model,
   modelConfig,
-  abortSignal,
-  writer,
   parentTraceId,
-  searchMode = 'adaptive',
-  modelType
+  searchMode = 'adaptive'
 }: {
   model: string
   modelConfig?: Model
-  abortSignal?: AbortSignal
-  writer?: UIMessageStreamWriter
   parentTraceId?: string
   searchMode?: SearchMode
-  modelType?: ModelType
-}): ResearcherAgent {
+}) {
   try {
     const currentDate = new Date().toLocaleString()
 
     // Create model-specific tools with proper typing
     const originalSearchTool = createSearchTool(model)
     const askQuestionTool = createQuestionTool(model)
-    const todoTools = writer ? createTodoTools() : {}
+    const todoTools = createTodoTools()
 
     let systemPrompt: string
     let activeToolsList: (keyof ResearcherTools)[] = []
@@ -120,14 +102,10 @@ export function createResearcher({
 
       case 'adaptive':
       default:
-        systemPrompt = ADAPTIVE_MODE_PROMPT
-        activeToolsList = ['search', 'fetch']
-        // Only enable todo tools for quality model type
-        if (writer && 'todoWrite' in todoTools && modelType === 'quality') {
-          activeToolsList.push('todoWrite')
-        }
+        systemPrompt = getAdaptiveModePrompt()
+        activeToolsList = ['search', 'fetch', 'todoWrite']
         console.log(
-          `[Researcher] Adaptive mode: maxSteps=50, modelType=${modelType}, tools=[${activeToolsList.join(', ')}]`
+          `[Researcher] Adaptive mode: maxSteps=50, tools=[${activeToolsList.join(', ')}]`
         )
         maxSteps = 50
         searchTool = originalSearchTool
@@ -142,15 +120,13 @@ export function createResearcher({
       ...todoTools
     } as ResearcherTools
 
-    // Create streamText-based agent with smoothStream support
-    const agentConfig = {
+    // Create ToolLoopAgent with all configuration
+    const agent = new ToolLoopAgent({
       model: getModel(model),
-      system: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
+      instructions: `${systemPrompt}\nCurrent date and time: ${currentDate}`,
       tools,
       activeTools: activeToolsList,
       stopWhen: stepCountIs(maxSteps),
-      abortSignal,
-      experimental_transform: smoothStream({ chunking: 'word' }), // Enable smooth streaming
       ...(modelConfig?.providerOptions && {
         providerOptions: modelConfig.providerOptions
       }),
@@ -167,18 +143,7 @@ export function createResearcher({
           })
         }
       }
-    }
-
-    // Create Agent-compatible wrapper with streamText
-    const agent: ResearcherAgent = {
-      tools,
-      stream: ({ messages }: { messages: ModelMessage[] }) => {
-        return streamText({
-          ...agentConfig,
-          messages
-        })
-      }
-    }
+    })
 
     return agent
   } catch (error) {
@@ -188,18 +153,10 @@ export function createResearcher({
 }
 
 // Helper function to access agent tools
-export function getResearcherTools(agent: ResearcherAgent): ResearcherTools {
+export function getResearcherTools(
+  agent: ToolLoopAgent<never, ResearcherTools, never>
+): ResearcherTools {
   return agent.tools
-}
-
-// Helper function to create a respond wrapper with type safety
-export function createResearcherRespond(agent: ResearcherAgent) {
-  return (options: ResearcherRespondOptions): ResearcherResponse => {
-    if (!agent.respond) {
-      throw new Error('respond method not available - use stream instead')
-    }
-    return agent.respond(options)
-  }
 }
 
 // Export the legacy function name for backward compatibility

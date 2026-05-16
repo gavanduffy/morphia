@@ -11,6 +11,8 @@ import {
   useState
 } from 'react'
 
+import { Images } from 'lucide-react'
+
 import { SearchResultImage } from '@/lib/types'
 
 import {
@@ -30,6 +32,8 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog'
 
+import { ImageCreditOverlay } from '@/components/image-credit-overlay'
+
 interface SearchResultsImageSectionProps {
   images: SearchResultImage[]
   query?: string
@@ -41,6 +45,7 @@ type NormalizedImage = { id: string; url: string; description: string }
 type FilterStatus = 'loading' | 'ready' | 'empty'
 
 interface FilteredImagesState {
+  key: string
   status: FilterStatus
   images: NormalizedImage[]
 }
@@ -70,47 +75,34 @@ const normalizeImages = (images: SearchResultImage[]): NormalizedImage[] => {
 
 const useFilteredImages = (images: SearchResultImage[]) => {
   const normalizedImages = useMemo(() => normalizeImages(images), [images])
-  const previousIdsRef = useRef<string | null>(null)
+  const normalizedKey = useMemo(
+    () => normalizedImages.map(image => image.id).join('|'),
+    [normalizedImages]
+  )
+  const [removedState, setRemovedState] = useState<{
+    key: string
+    ids: string[]
+  }>({
+    key: '',
+    ids: []
+  })
 
   const [state, setState] = useState<FilteredImagesState>(() => ({
+    key: '',
     status: normalizedImages.length === 0 ? 'empty' : 'loading',
     images: []
   }))
 
   useEffect(() => {
-    const normalizedKey = normalizedImages.map(image => image.id).join('|')
-
-    if (normalizedImages.length === 0) {
-      setState({ status: 'empty', images: [] })
-      previousIdsRef.current = normalizedKey
+    if (normalizedImages.length === 0 || typeof window === 'undefined') {
       return
     }
 
-    if (typeof window === 'undefined') {
-      setState({ status: 'ready', images: normalizedImages })
-      previousIdsRef.current = normalizedKey
+    if (state.key === normalizedKey) {
       return
     }
-
-    if (previousIdsRef.current === normalizedKey) {
-      setState(prevState => {
-        if (prevState.status === 'ready') {
-          return prevState
-        }
-
-        return {
-          status: 'ready',
-          images:
-            prevState.images.length > 0 ? prevState.images : normalizedImages
-        }
-      })
-      return
-    }
-
-    previousIdsRef.current = normalizedKey
 
     let cancelled = false
-    setState({ status: 'loading', images: [] })
 
     const preloadImage = (image: NormalizedImage) =>
       new Promise<NormalizedImage | null>(resolve => {
@@ -131,39 +123,51 @@ const useFilteredImages = (images: SearchResultImage[]) => {
       }
 
       const validImages = results.filter(Boolean) as NormalizedImage[]
-      if (validImages.length === 0) {
-        setState({ status: 'empty', images: [] })
-        return
-      }
-
-      setState({ status: 'ready', images: validImages })
+      setState({
+        key: normalizedKey,
+        status: validImages.length === 0 ? 'empty' : 'ready',
+        images: validImages
+      })
     })
 
     return () => {
       cancelled = true
     }
-  }, [normalizedImages])
+  }, [normalizedImages, normalizedKey, state.key])
 
-  const removeImage = useCallback((id: string) => {
-    setState(prevState => {
-      if (prevState.status === 'loading') {
-        return prevState
-      }
+  const removeImage = useCallback(
+    (id: string) => {
+      setRemovedState(prevState => {
+        const ids = prevState.key === normalizedKey ? prevState.ids : []
+        return ids.includes(id)
+          ? { key: normalizedKey, ids }
+          : { key: normalizedKey, ids: [...ids, id] }
+      })
+    },
+    [normalizedKey]
+  )
 
-      const remaining = prevState.images.filter(image => image.id !== id)
-      return {
-        status: remaining.length === 0 ? 'empty' : 'ready',
-        images: remaining
-      }
-    })
-  }, [])
-
-  const displayImages =
-    state.status === 'loading' ? normalizedImages : state.images
+  const sourceImages =
+    state.key === normalizedKey && state.status !== 'loading'
+      ? state.images
+      : normalizedImages
+  const removedIds = removedState.key === normalizedKey ? removedState.ids : []
+  const visibleImages = sourceImages.filter(
+    image => !removedIds.includes(image.id)
+  )
+  const status: FilterStatus =
+    visibleImages.length === 0
+      ? 'empty'
+      : state.key === normalizedKey && state.status !== 'loading'
+        ? state.status
+        : normalizedImages.length === 0
+          ? 'empty'
+          : 'loading'
+  const displayImages = status === 'loading' ? normalizedImages : visibleImages
 
   return {
-    status: state.status,
-    filteredImages: state.images,
+    status,
+    filteredImages: visibleImages,
     displayImages,
     removeImage
   }
@@ -180,17 +184,10 @@ const useCarouselMetrics = ({
   selectedIndex: number
   setSelectedIndex: Dispatch<SetStateAction<number>>
 }) => {
-  const [current, setCurrent] = useState(() =>
-    imageCount > 0 ? Math.min(selectedIndex + 1, imageCount) : 0
-  )
+  const [current, setCurrent] = useState<number | null>(null)
 
   useEffect(() => {
     if (!api) {
-      if (imageCount === 0) {
-        setCurrent(0)
-      } else {
-        setCurrent(Math.min(selectedIndex + 1, imageCount))
-      }
       return
     }
 
@@ -204,7 +201,7 @@ const useCarouselMetrics = ({
     return () => {
       api.off('select', handleSelect)
     }
-  }, [api, imageCount, selectedIndex])
+  }, [api])
 
   useEffect(() => {
     setSelectedIndex(prevIndex => {
@@ -217,9 +214,6 @@ const useCarouselMetrics = ({
 
   useEffect(() => {
     if (!api || imageCount === 0) {
-      if (imageCount === 0) {
-        setCurrent(0)
-      }
       return
     }
 
@@ -227,7 +221,10 @@ const useCarouselMetrics = ({
     api.scrollTo(clampedIndex, false)
   }, [api, selectedIndex, imageCount])
 
-  return { current }
+  const currentValue =
+    imageCount === 0 ? 0 : (current ?? Math.min(selectedIndex + 1, imageCount))
+
+  return { current: currentValue }
 }
 
 const cornerClassForIndex = (actualIndex: number, isFullMode: boolean) => {
@@ -310,12 +307,20 @@ export const SearchResultsImageSection: React.FC<
                     />
                   </div>
                 </div>
+                {!isFullMode &&
+                  index === imageSubset.length - 1 &&
+                  filteredCount > 1 && (
+                    <div className="absolute bottom-1.5 right-1.5 bg-black/40 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                      <Images size={14} />
+                      <span>{filteredCount}</span>
+                    </div>
+                  )}
               </div>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-auto">
+            <DialogContent className="max-w-[90vw] sm:max-w-[90vw] max-h-[90vh] overflow-auto border border-white/10 bg-black/60 shadow-2xl backdrop-blur-md">
               <DialogHeader>
-                <DialogTitle>Search Images</DialogTitle>
-                <DialogDescription className="text-sm">
+                <DialogTitle className="text-white">Images</DialogTitle>
+                <DialogDescription className="text-sm text-white/70">
                   {query}
                 </DialogDescription>
               </DialogHeader>
@@ -326,34 +331,38 @@ export const SearchResultsImageSection: React.FC<
                     startIndex: selectedIndex,
                     loop: filteredCount > 1
                   }}
-                  className="w-full bg-muted max-h-[60vh]"
+                  className="w-full max-h-[70vh]"
                 >
                   <CarouselContent>
                     {filteredImages.map((img, idx) => (
                       <CarouselItem key={img.id}>
-                        <div className="p-1 flex items-center justify-center h-full">
+                        <div className="relative w-full h-full flex items-center justify-center">
                           <img
                             src={img.url}
                             alt={`Image ${idx + 1}`}
-                            className="h-auto w-full object-contain max-h-[60vh]"
+                            className="max-w-full max-h-[70vh] object-contain"
                             onError={() => removeImage(img.id)}
+                          />
+                          <ImageCreditOverlay
+                            url={img.url}
+                            description={img.description}
                           />
                         </div>
                       </CarouselItem>
                     ))}
                   </CarouselContent>
                   {filteredCount > 1 && (
-                    <div className="absolute inset-8 flex items-center justify-between p-4">
-                      <CarouselPrevious className="w-10 h-10 rounded-full shadow-sm focus:outline-hidden">
+                    <div className="absolute inset-8 flex items-center justify-between p-4 pointer-events-none">
+                      <CarouselPrevious className="size-10 rounded-full shadow-sm focus:outline-hidden pointer-events-auto">
                         <span className="sr-only">Previous</span>
                       </CarouselPrevious>
-                      <CarouselNext className="w-10 h-10 rounded-full shadow-sm focus:outline-hidden">
+                      <CarouselNext className="size-10 rounded-full shadow-sm focus:outline-hidden pointer-events-auto">
                         <span className="sr-only">Next</span>
                       </CarouselNext>
                     </div>
                   )}
                 </Carousel>
-                <div className="py-2 text-center text-sm text-muted-foreground">
+                <div className="py-2 text-center text-sm text-white/70">
                   {current} of {filteredCount}
                 </div>
               </div>

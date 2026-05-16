@@ -1,12 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport } from 'ai'
 import { toast } from 'sonner'
 
+import { ChatProvider } from '@/lib/contexts/chat-context'
 import { generateId } from '@/lib/db/schema'
+import { SHORTCUT_EVENTS } from '@/lib/keyboard-shortcuts'
+import { stripSpecBlocks } from '@/lib/render/strip-spec-blocks'
 import { UploadedFile } from '@/lib/types'
 import type { UIMessage } from '@/lib/types/ai'
 import {
@@ -14,12 +18,11 @@ import {
   isToolCallPart,
   isToolTypePart
 } from '@/lib/types/dynamic-tools'
+import type { ModelSelectorData } from '@/lib/types/model-selector'
 import { cn } from '@/lib/utils'
 
-import { useAuthCheck } from '@/hooks/use-auth-check'
 import { useFileDropzone } from '@/hooks/use-file-dropzone'
 
-import { AuthModal } from './auth-modal'
 import { ChatMessages } from './chat-messages'
 import { ChatPanel } from './chat-panel'
 import { DragOverlay } from './drag-overlay'
@@ -35,12 +38,20 @@ interface ChatSection {
 export function Chat({
   id: providedId,
   savedMessages = [],
-  query
+  query,
+  isGuest = false,
+  isCloudDeployment = false,
+  modelSelectorData
 }: {
   id?: string
   savedMessages?: UIMessage[]
   query?: string
+  isGuest?: boolean
+  isCloudDeployment?: boolean
+  modelSelectorData?: ModelSelectorData
 }) {
+  const router = useRouter()
+
   // Generate a stable chatId on the client side
   // - If providedId exists (e.g., /search/[id]), use it for existing chats
   // - Otherwise, generate a new ID (e.g., / homepage for new chats)
@@ -64,7 +75,6 @@ export function Chat({
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [input, setInput] = useState('')
-  const [showAuthModal, setShowAuthModal] = useState(false)
   const [errorModal, setErrorModal] = useState<{
     open: boolean
     type: 'rate-limit' | 'auth' | 'forbidden' | 'general'
@@ -75,7 +85,6 @@ export function Chat({
     type: 'general',
     message: ''
   })
-  const { isAuthenticated } = useAuthCheck()
 
   const {
     messages,
@@ -103,6 +112,7 @@ export function Chat({
             trigger, // Use AI SDK's default trigger value directly
             chatId: chatId,
             messageId,
+            ...(isGuest ? { messages } : {}),
             message:
               trigger === 'regenerate-message' &&
               messageToRegenerate?.role === 'user'
@@ -132,15 +142,23 @@ export function Chat({
         errorMessage.includes('too many requests') ||
         errorMessage.includes('daily limit')
 
+      // Check for authentication errors
+      const isAuthError =
+        error.message?.includes('401') ||
+        errorMessage.includes('unauthorized') ||
+        errorMessage.includes('authentication required') ||
+        errorMessage.includes('sign in to continue')
+
       if (isRateLimit) {
-        // Try to parse JSON error response for quality mode rate limit
+        // Try to parse JSON error response. The body may include `mode`
+        // (e.g. "adaptive") so we can show context-specific guidance.
         let parsedError: {
           error?: string
           resetAt?: number
           remaining?: number
+          mode?: string
         } = {}
         try {
-          // Extract JSON from error message if it exists
           const jsonMatch = error.message?.match(/\{.*\}/)
           if (jsonMatch) {
             parsedError = JSON.parse(jsonMatch[0])
@@ -149,25 +167,36 @@ export function Chat({
           // Ignore parse errors
         }
 
-        // Use parsed error message or fallback
         const userMessage =
           parsedError.error ||
-          'You have reached your daily limit for quality mode chat requests.'
+          'You have reached your daily chat limit. Please try again tomorrow.'
+
+        const details =
+          parsedError.mode === 'adaptive'
+            ? 'The limit resets at midnight UTC. You can continue using Quick mode without restrictions.'
+            : 'The limit resets at midnight UTC.'
 
         setErrorModal({
           open: true,
           type: 'rate-limit',
           message: userMessage,
-          details: undefined
+          details
         })
-      } else if (
-        error.message?.includes('401') ||
-        errorMessage.includes('unauthorized')
-      ) {
+      } else if (isAuthError) {
+        // Try to parse JSON for context-specific auth prompts
+        // (e.g. adaptive mode requires sign in).
+        let parsedAuthError: { error?: string; authRequired?: boolean } = {}
+        try {
+          const jsonMatch = error.message?.match(/\{.*\}/)
+          if (jsonMatch) parsedAuthError = JSON.parse(jsonMatch[0])
+        } catch {
+          // Ignore parse errors
+        }
+
         setErrorModal({
           open: true,
           type: 'auth',
-          message: error.message
+          message: parsedAuthError.error || error.message
         })
       } else if (
         error.message?.includes('403') ||
@@ -222,6 +251,51 @@ export function Chat({
     return result
   }, [messages])
 
+  // Listen for copy message shortcut
+  // Uses ref to avoid re-registering listener on every messages change.
+  // Uses defaultPrevented + visibility check to prevent duplicate handling
+  // when multiple Chat instances are mounted (Next.js component caching).
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  useEffect(() => {
+    const handleCopyMessage = (e: Event) => {
+      if (e.defaultPrevented) return
+      // Only handle in the visible (active) Chat instance
+      if (!scrollContainerRef.current?.offsetParent) return
+      e.preventDefault()
+
+      const assistantMessages = messagesRef.current.filter(
+        m => m.role === 'assistant'
+      )
+      const lastAssistant = assistantMessages[assistantMessages.length - 1]
+      if (!lastAssistant) {
+        toast.info('No assistant message to copy')
+        return
+      }
+      const text =
+        lastAssistant.parts
+          ?.filter(
+            (p): p is { type: 'text'; text: string } => p.type === 'text'
+          )
+          .map(p => p.text)
+          .join('\n') ?? ''
+
+      if (text) {
+        navigator.clipboard.writeText(stripSpecBlocks(text)).then(
+          () => toast.success('Message copied to clipboard'),
+          () => toast.error('Failed to copy message')
+        )
+      }
+    }
+
+    window.addEventListener(SHORTCUT_EVENTS.copyMessage, handleCopyMessage)
+    return () =>
+      window.removeEventListener(SHORTCUT_EVENTS.copyMessage, handleCopyMessage)
+  }, [])
+
   // Dispatch custom event when messages change
   useEffect(() => {
     window.dispatchEvent(
@@ -236,20 +310,23 @@ export function Chat({
     const container = scrollContainerRef.current
     if (!container) return
 
-    const handleScroll = () => {
+    const updateIsAtBottom = () => {
       const { scrollTop, scrollHeight, clientHeight } = container
       const threshold = 50 // threshold in pixels
-      if (scrollHeight - scrollTop - clientHeight < threshold) {
-        setIsAtBottom(true)
-      } else {
-        setIsAtBottom(false)
-      }
+      setIsAtBottom(scrollHeight - scrollTop - clientHeight < threshold)
+    }
+
+    const handleScroll = () => {
+      updateIsAtBottom()
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true })
-    handleScroll() // Set initial state
+    const frame = requestAnimationFrame(updateIsAtBottom)
 
-    return () => container.removeEventListener('scroll', handleScroll)
+    return () => {
+      cancelAnimationFrame(frame)
+      container.removeEventListener('scroll', handleScroll)
+    }
   }, [messages.length])
 
   // Check scroll position when messages change (during generation)
@@ -257,13 +334,13 @@ export function Chat({
     const container = scrollContainerRef.current
     if (!container) return
 
-    const { scrollTop, scrollHeight, clientHeight } = container
-    const threshold = 50
-    if (scrollHeight - scrollTop - clientHeight < threshold) {
-      setIsAtBottom(true)
-    } else {
-      setIsAtBottom(false)
-    }
+    const frame = requestAnimationFrame(() => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      const threshold = 50
+      setIsAtBottom(scrollHeight - scrollTop - clientHeight < threshold)
+    })
+
+    return () => cancelAnimationFrame(frame)
   }, [messages])
 
   // Scroll to the section when a new user message is sent
@@ -285,13 +362,6 @@ export function Chat({
       }
     }
   }, [sections, messages, chatId])
-
-  const onQuerySelect = (query: string) => {
-    sendMessage({
-      role: 'user',
-      parts: [{ type: 'text', text: query }]
-    })
-  }
 
   const handleUpdateAndReloadMessage = async (
     editedMessageId: string,
@@ -351,12 +421,6 @@ export function Chat({
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
 
-    // Check authentication before sending message
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
-      return
-    }
-
     const uploaded = uploadedFiles.filter(f => f.status === 'uploaded')
 
     if (input.trim() || uploaded.length > 0) {
@@ -381,7 +445,7 @@ export function Chat({
 
       // Push URL state immediately after sending message (for new chats)
       // Check if we're on the root path (new chat)
-      if (window.location.pathname === '/') {
+      if (!isGuest && window.location.pathname === '/') {
         window.history.pushState({}, '', `/search/${chatId}`)
       }
     }
@@ -393,105 +457,130 @@ export function Chat({
       setUploadedFiles,
       chatId: chatId
     })
+  const guestDragHandlers = {
+    isDragging: false,
+    handleDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+    },
+    handleDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+    },
+    handleDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+    }
+  }
+  const dragHandlers = isGuest
+    ? guestDragHandlers
+    : { isDragging, handleDragOver, handleDragLeave, handleDrop }
 
   return (
-    <div
-      className={cn(
-        'relative flex h-full min-w-0 flex-1 flex-col',
-        messages.length === 0 ? 'items-center justify-center' : ''
-      )}
-      data-testid="full-chat"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      <ChatMessages
-        sections={sections}
-        onQuerySelect={onQuerySelect}
-        status={status}
-        chatId={chatId}
-        addToolResult={({
-          toolCallId,
-          result
-        }: {
-          toolCallId: string
-          result: any
-        }) => {
-          // Find the tool name from the message parts
-          let toolName = 'unknown'
+    <ChatProvider sendMessage={sendMessage}>
+      <div
+        className={cn(
+          'relative flex h-full min-w-0 flex-1 flex-col',
+          messages.length === 0 ? 'items-center justify-center' : ''
+        )}
+        data-testid="full-chat"
+        onDragOver={dragHandlers.handleDragOver}
+        onDragLeave={dragHandlers.handleDragLeave}
+        onDrop={dragHandlers.handleDrop}
+      >
+        <ChatMessages
+          sections={sections}
+          status={status}
+          chatId={chatId}
+          isGuest={isGuest}
+          addToolResult={({
+            toolCallId,
+            result
+          }: {
+            toolCallId: string
+            result: any
+          }) => {
+            // Find the tool name from the message parts
+            let toolName = 'unknown'
 
-          // Optimize by breaking early once found
-          outerLoop: for (const message of messages) {
-            if (!message.parts) continue
+            // Optimize by breaking early once found
+            outerLoop: for (const message of messages) {
+              if (!message.parts) continue
 
-            for (const part of message.parts) {
-              if (isToolCallPart(part) && part.toolCallId === toolCallId) {
-                toolName = part.toolName
-                break outerLoop
-              } else if (
-                isToolTypePart(part) &&
-                part.toolCallId === toolCallId
-              ) {
-                toolName = part.type.substring(5) // Remove 'tool-' prefix
-                break outerLoop
-              } else if (
-                isDynamicToolPart(part) &&
-                part.toolCallId === toolCallId
-              ) {
-                toolName = part.toolName
-                break outerLoop
-              }
-            }
-          }
-
-          addToolResult({ tool: toolName, toolCallId, output: result })
-        }}
-        scrollContainerRef={scrollContainerRef}
-        onUpdateMessage={handleUpdateAndReloadMessage}
-        reload={handleReloadFrom}
-        error={error}
-      />
-      <ChatPanel
-        chatId={chatId}
-        input={input}
-        handleInputChange={handleInputChange}
-        handleSubmit={onSubmit}
-        status={status}
-        messages={messages}
-        setMessages={setMessages}
-        stop={stop}
-        query={query}
-        append={(message: any) => {
-          sendMessage(message)
-        }}
-        showScrollToBottomButton={!isAtBottom}
-        uploadedFiles={uploadedFiles}
-        setUploadedFiles={setUploadedFiles}
-        scrollContainerRef={scrollContainerRef}
-        onNewChat={handleNewChat}
-      />
-      <DragOverlay visible={isDragging} />
-      <AuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
-      <ErrorModal
-        open={errorModal.open}
-        onOpenChange={open => setErrorModal(prev => ({ ...prev, open }))}
-        error={errorModal}
-        onRetry={
-          errorModal.type !== 'rate-limit'
-            ? () => {
-                // Retry the last message if not rate limited
-                if (messages.length > 0) {
-                  const lastUserMessage = messages
-                    .filter(m => m.role === 'user')
-                    .pop()
-                  if (lastUserMessage) {
-                    sendMessage(lastUserMessage)
-                  }
+              for (const part of message.parts) {
+                if (isToolCallPart(part) && part.toolCallId === toolCallId) {
+                  toolName = part.toolName
+                  break outerLoop
+                } else if (
+                  isToolTypePart(part) &&
+                  part.toolCallId === toolCallId
+                ) {
+                  toolName = part.type.substring(5) // Remove 'tool-' prefix
+                  break outerLoop
+                } else if (
+                  isDynamicToolPart(part) &&
+                  part.toolCallId === toolCallId
+                ) {
+                  toolName = part.toolName
+                  break outerLoop
                 }
               }
-            : undefined
-        }
-      />
-    </div>
+            }
+
+            addToolResult({ tool: toolName, toolCallId, output: result })
+          }}
+          scrollContainerRef={scrollContainerRef}
+          onUpdateMessage={handleUpdateAndReloadMessage}
+          reload={handleReloadFrom}
+          error={error}
+        />
+        <ChatPanel
+          chatId={chatId}
+          input={input}
+          handleInputChange={handleInputChange}
+          handleSubmit={onSubmit}
+          status={status}
+          messages={messages}
+          setMessages={setMessages}
+          stop={stop}
+          query={query}
+          append={(message: any) => {
+            sendMessage(message)
+          }}
+          showScrollToBottomButton={!isAtBottom}
+          uploadedFiles={uploadedFiles}
+          setUploadedFiles={setUploadedFiles}
+          scrollContainerRef={scrollContainerRef}
+          onNewChat={handleNewChat}
+          isGuest={isGuest}
+          isCloudDeployment={isCloudDeployment}
+          modelSelectorData={modelSelectorData}
+          sections={sections}
+        />
+        <DragOverlay visible={dragHandlers.isDragging} />
+        <ErrorModal
+          open={errorModal.open}
+          onOpenChange={open => setErrorModal(prev => ({ ...prev, open }))}
+          error={errorModal}
+          onRetry={
+            errorModal.type !== 'rate-limit'
+              ? () => {
+                  // Retry the last message if not rate limited
+                  if (messages.length > 0) {
+                    const lastUserMessage = messages
+                      .filter(m => m.role === 'user')
+                      .pop()
+                    if (lastUserMessage) {
+                      sendMessage(lastUserMessage)
+                    }
+                  }
+                }
+              : undefined
+          }
+          onAuthClose={() => {
+            // Clear messages and navigate to root
+            setMessages([])
+            router.push('/')
+          }}
+        />
+      </div>
+    </ChatProvider>
   )
 }
